@@ -7,10 +7,17 @@ import { IdlError } from "../../error.js";
 export class IdlCoder {
   public static fieldLayout(
     field: { name?: string } & Pick<IdlField, "type">,
-    types?: IdlTypeDef[]
+    types?: IdlTypeDef[],
+    depth: number = 0
   ): Layout {
     const fieldName =
       field.name !== undefined ? camelCase(field.name) : undefined;
+
+    if (depth > 10) {
+      // TODO: when it hits the parsing depth, what object should we return.
+      return borsh.struct([], fieldName);
+    }
+
     switch (field.type) {
       case "bool": {
         return borsh.bool(fieldName);
@@ -68,7 +75,8 @@ export class IdlCoder {
                 name: undefined,
                 type: field.type.vec,
               },
-              types
+              types,
+              depth + 1
             ),
             fieldName
           );
@@ -79,7 +87,8 @@ export class IdlCoder {
                 name: undefined,
                 type: field.type.option,
               },
-              types
+              types,
+              depth + 1
             ),
             fieldName
           );
@@ -93,7 +102,7 @@ export class IdlCoder {
           if (filtered.length !== 1) {
             throw new IdlError(`Type not found: ${JSON.stringify(field)}`);
           }
-          return IdlCoder.typeDefLayout(filtered[0], types, fieldName);
+          return IdlCoder.typeDefLayout(filtered[0], types, fieldName, depth + 1);
         } else if ("array" in field.type) {
           let arrayTy = field.type.array[0];
           let arrayLen = field.type.array[1];
@@ -102,7 +111,8 @@ export class IdlCoder {
               name: undefined,
               type: arrayTy,
             },
-            types
+            types,
+            depth + 1
           );
           return borsh.array(innerLayout, arrayLen, fieldName);
         } else {
@@ -115,11 +125,12 @@ export class IdlCoder {
   public static typeDefLayout(
     typeDef: IdlTypeDef,
     types: IdlTypeDef[] = [],
-    name?: string
+    name?: string,
+    depth: number = 0
   ): Layout {
     if (typeDef.type.kind === "struct") {
       const fieldLayouts = typeDef.type.fields.map((field) => {
-        const x = IdlCoder.fieldLayout(field, types);
+        const x = IdlCoder.fieldLayout(field, types, depth);
         return x;
       });
       return borsh.struct(fieldLayouts, name);
@@ -137,7 +148,7 @@ export class IdlCoder {
           // because if f were of type IdlType
           // (that does not have a name property)
           // the check before would've errored
-          return IdlCoder.fieldLayout(f as IdlField, types);
+          return IdlCoder.fieldLayout(f as IdlField, types, depth);
         });
         return borsh.struct(fieldLayouts, name);
       });
